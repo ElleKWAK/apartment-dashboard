@@ -36,28 +36,36 @@
     </div>
 
     <div class="max-w-7xl mx-auto space-y-6 hidden" id="dashboard">
-        <!-- 헤더 -->
-        <header class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
-            <h1 class="text-2xl md:text-3xl font-bold text-gray-800">우리 동네 아파트 실거래가 대시보드</h1>
-            <span class="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full" id="lastUpdated"></span>
+        <!-- 헤더 및 필터 -->
+        <header class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h1 class="text-2xl md:text-3xl font-bold text-gray-800">우리 동네 아파트 실거래가 대시보드</h1>
+                <div class="mt-2 flex items-center space-x-2">
+                    <label for="dongFilter" class="text-sm font-bold text-gray-600">📍 동네 선택:</label>
+                    <select id="dongFilter" class="bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-green-500 focus:border-green-500 block p-1.5 cursor-pointer outline-none">
+                        <option value="all">전체 (모든 동네)</option>
+                    </select>
+                </div>
+            </div>
+            <span class="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full whitespace-nowrap" id="lastUpdated"></span>
         </header>
 
         <!-- 요약 카드 -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-green-600">
-                <p class="text-sm text-gray-500 font-medium mb-1">전체 거래 건수</p>
+                <p class="text-sm text-gray-500 font-medium mb-1 flex items-center gap-1"><span>🏠</span> 전체 거래 건수</p>
                 <h3 class="text-2xl font-bold text-green-900" id="totalCount">0건</h3>
             </div>
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-emerald-500">
-                <p class="text-sm text-gray-500 font-medium mb-1">평균 거래가격</p>
+                <p class="text-sm text-gray-500 font-medium mb-1 flex items-center gap-1"><span>💰</span> 평균 거래가격</p>
                 <h3 class="text-2xl font-bold text-green-900" id="avgPrice">0만원</h3>
             </div>
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-teal-500">
-                <p class="text-sm text-gray-500 font-medium mb-1">최고 거래가격</p>
+                <p class="text-sm text-gray-500 font-medium mb-1 flex items-center gap-1"><span>📈</span> 최고 거래가격</p>
                 <h3 class="text-2xl font-bold text-green-900" id="maxPrice">0만원</h3>
             </div>
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-cyan-500">
-                <p class="text-sm text-gray-500 font-medium mb-1">최저 거래가격</p>
+                <p class="text-sm text-gray-500 font-medium mb-1 flex items-center gap-1"><span>📉</span> 최저 거래가격</p>
                 <h3 class="text-2xl font-bold text-green-900" id="minPrice">0만원</h3>
             </div>
         </div>
@@ -67,6 +75,18 @@
             <h2 class="text-lg font-bold text-gray-800 mb-4">월별 평균 거래가격 추이</h2>
             <div class="relative h-72 w-full">
                 <canvas id="monthlyChart"></canvas>
+            </div>
+        </div>
+
+        <!-- TOP 5 아파트 영역 -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div class="p-6 border-b border-gray-100">
+                <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">🏆 우리 동네 비싼 아파트 TOP 5</h2>
+            </div>
+            <div class="p-6 bg-gray-50">
+                <ul id="top5List" class="space-y-3">
+                    <!-- 랭킹 아이템이 이곳에 삽입됩니다 -->
+                </ul>
             </div>
         </div>
 
@@ -97,6 +117,10 @@
     </div>
 
     <script>
+        // 전역 변수 설정 (필터링과 차트 재생성을 위함)
+        let globalData = [];
+        let myChartInstance = null;
+
         // CSV 데이터 URL (구글 시트 게시 링크)
         const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTJK_iPG8ac7kmRdaHuCxqsefAdK0y4_Y_uPQ4sHlnh9qa5bucyeczIFDcNc4g4o1_BJQUdaceKsbIH/pub?gid=816771906&single=true&output=csv';
 
@@ -120,8 +144,13 @@
             header: true,
             skipEmptyLines: true,
             complete: function(results) {
-                const data = results.data;
-                processData(data);
+                globalData = results.data;
+                
+                // 법정동 필터 드롭다운 초기화
+                initDongFilter(globalData);
+                
+                // 초기 대시보드 렌더링 (전체 데이터)
+                updateDashboard('all');
                 
                 // 로딩 화면 숨기고 대시보드 표시
                 document.getElementById('loading').style.display = 'none';
@@ -137,7 +166,32 @@
             }
         });
 
-        function processData(data) {
+        // 법정동 목록 추출 및 드롭다운 세팅
+        function initDongFilter(data) {
+            const dongSet = new Set();
+            data.forEach(row => {
+                const dong = row['법정동'] || '-';
+                if (dong !== '-' && dong.trim() !== '') {
+                    dongSet.add(dong.trim());
+                }
+            });
+
+            const select = document.getElementById('dongFilter');
+            // 가나다순 정렬 후 옵션 추가
+            Array.from(dongSet).sort().forEach(dong => {
+                const option = document.createElement('option');
+                option.value = dong;
+                option.textContent = dong;
+                select.appendChild(option);
+            });
+
+            // 필터 변경 이벤트 리스너
+            select.addEventListener('change', (e) => {
+                updateDashboard(e.target.value);
+            });
+        }
+
+        function updateDashboard(selectedDong) {
             let totalCount = 0;
             let sumPrice = 0;
             let maxPrice = -Infinity;
@@ -146,12 +200,15 @@
             const monthlyStats = {};
             const tableRows = [];
 
-            data.forEach(row => {
-                // 키워드 매칭 안전하게 처리 (시트 헤더명에 따라 다를 수 있음)
+            globalData.forEach(row => {
+                const dong = (row['법정동'] || '-').trim();
+                
+                // 선택된 동네 필터링 (all이 아닐 경우 해당 동네만 통과)
+                if (selectedDong !== 'all' && dong !== selectedDong) return;
+
                 const dateRaw = row['거래일자'] || row['년월일'] || '';
                 const priceRaw = row['거래금액(만원)'] || row['거래금액'] || '0';
                 const aptName = row['아파트명'] || row['아파트'] || '-';
-                const dong = row['법정동'] || '-';
                 const area = row['전용면적(㎡)'] || row['전용면적'] || '-';
                 const floor = row['층'] || '-';
                 const buildYear = row['건축년도'] || '-';
@@ -192,16 +249,63 @@
             // 1. 요약 카드 렌더링
             const avgPrice = totalCount > 0 ? sumPrice / totalCount : 0;
             document.getElementById('totalCount').innerText = `${new Intl.NumberFormat('ko-KR').format(totalCount)}건`;
-            document.getElementById('avgPrice').innerText = formatKoreanCurrency(avgPrice);
+            document.getElementById('avgPrice').innerText = totalCount > 0 ? formatKoreanCurrency(avgPrice) : '0만원';
             document.getElementById('maxPrice').innerText = maxPrice !== -Infinity ? formatKoreanCurrency(maxPrice) : '0만원';
             document.getElementById('minPrice').innerText = minPrice !== Infinity ? formatKoreanCurrency(minPrice) : '0만원';
 
             // 2. 차트 렌더링
             renderChart(monthlyStats);
 
-            // 3. 테이블 렌더링 (최신 날짜순 정렬 후 모든 데이터 표시)
+            // 3. TOP 5 렌더링
+            renderTop5(tableRows);
+
+            // 4. 테이블 렌더링 (최신 날짜순 정렬 후 모든 데이터 표시)
             tableRows.sort((a, b) => b.date.localeCompare(a.date));
             renderTable(tableRows);
+        }
+
+        function renderTop5(rows) {
+            const container = document.getElementById('top5List');
+            container.innerHTML = ''; 
+
+            if(rows.length === 0) {
+                container.innerHTML = '<li class="text-center text-gray-500 py-4">조건에 맞는 데이터가 없습니다.</li>';
+                return;
+            }
+
+            // 거래금액 기준 내림차순 정렬 후 상위 5개 추출
+            const top5 = [...rows].sort((a, b) => b.price - a.price).slice(0, 5);
+
+            top5.forEach((row, index) => {
+                const rank = index + 1;
+                let rankStyle = 'bg-gray-200 text-gray-600'; // 4, 5위 기본 스타일
+                if (rank === 1) rankStyle = 'bg-yellow-100 text-yellow-600 border border-yellow-300 shadow-sm'; // 1위 금색
+                else if (rank === 2) rankStyle = 'bg-slate-200 text-slate-600 border border-slate-300 shadow-sm'; // 2위 은색
+                else if (rank === 3) rankStyle = 'bg-orange-100 text-orange-600 border border-orange-300 shadow-sm'; // 3위 동색
+
+                const li = document.createElement('li');
+                li.className = 'flex items-center justify-between p-4 bg-white border border-gray-100 rounded-xl shadow-sm hover:border-green-400 hover:shadow-md transition-all';
+                
+                li.innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <div class="flex items-center justify-center min-w-[40px] h-10 rounded-full font-bold text-lg ${rankStyle}">
+                            ${rank}
+                        </div>
+                        <div>
+                            <div class="flex items-baseline gap-2">
+                                <h4 class="font-bold text-gray-900 text-base">${row.aptName}</h4>
+                                <span class="text-xs text-gray-500">${row.dong}</span>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-0.5">전용 ${row.area}㎡ · ${row.floor}층</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-lg font-bold text-green-700">${formatKoreanCurrency(row.price)}</div>
+                        <div class="text-xs text-gray-400 mt-0.5">${row.date} 거래</div>
+                    </div>
+                `;
+                container.appendChild(li);
+            });
         }
 
         function renderChart(monthlyStats) {
@@ -220,7 +324,13 @@
             });
 
             const ctx = document.getElementById('monthlyChart').getContext('2d');
-            new Chart(ctx, {
+            
+            // 기존 차트가 있으면 파괴(Destroy) 후 다시 그리기
+            if (myChartInstance) {
+                myChartInstance.destroy();
+            }
+
+            myChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
@@ -280,7 +390,7 @@
             tbody.innerHTML = ''; // 초기화
 
             if(rows.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500">데이터가 없습니다.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500">조건에 맞는 데이터가 없습니다.</td></tr>';
                 return;
             }
 
