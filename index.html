@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Chart.js (차트 라이브러리) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chart.js 데이터 라벨 플러그인 추가 -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
     <!-- PapaParse (CSV 파싱 라이브러리) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
@@ -19,7 +21,7 @@
             justify-content: center; align-items: center; z-index: 50; flex-direction: column;
         }
         .spinner {
-            border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6;
+            border: 4px solid #f3f3f3; border-top: 4px solid #16a34a;
             border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -37,26 +39,26 @@
         <!-- 헤더 -->
         <header class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
             <h1 class="text-2xl md:text-3xl font-bold text-gray-800">우리 동네 아파트 실거래가 대시보드</h1>
-            <span class="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full" id="lastUpdated"></span>
+            <span class="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full" id="lastUpdated"></span>
         </header>
 
         <!-- 요약 카드 -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-blue-500">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-green-600">
                 <p class="text-sm text-gray-500 font-medium mb-1">전체 거래 건수</p>
-                <h3 class="text-2xl font-bold text-gray-900" id="totalCount">0건</h3>
+                <h3 class="text-2xl font-bold text-green-900" id="totalCount">0건</h3>
             </div>
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-green-500">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-emerald-500">
                 <p class="text-sm text-gray-500 font-medium mb-1">평균 거래가격</p>
-                <h3 class="text-2xl font-bold text-gray-900" id="avgPrice">0만원</h3>
+                <h3 class="text-2xl font-bold text-green-900" id="avgPrice">0만원</h3>
             </div>
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-red-500">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-teal-500">
                 <p class="text-sm text-gray-500 font-medium mb-1">최고 거래가격</p>
-                <h3 class="text-2xl font-bold text-gray-900" id="maxPrice">0만원</h3>
+                <h3 class="text-2xl font-bold text-green-900" id="maxPrice">0만원</h3>
             </div>
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-purple-500">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-cyan-500">
                 <p class="text-sm text-gray-500 font-medium mb-1">최저 거래가격</p>
-                <h3 class="text-2xl font-bold text-gray-900" id="minPrice">0만원</h3>
+                <h3 class="text-2xl font-bold text-green-900" id="minPrice">0만원</h3>
             </div>
         </div>
 
@@ -166,12 +168,11 @@
                 if (price > maxPrice) maxPrice = price;
                 if (price < minPrice) minPrice = price;
 
-                // 월별 데이터 그룹화 (YYYY-MM 추출)
+                // 월별 데이터 그룹화 (YYYY-MM 정규화로 데이터 누락 방지)
                 let monthKey = '';
-                if (dateRaw.includes('-')) {
-                    monthKey = dateRaw.substring(0, 7); // 2026-02-15 -> 2026-02
-                } else if (dateRaw.length >= 6) {
-                    monthKey = dateRaw.substring(0, 4) + '-' + dateRaw.substring(4, 6); // 20260215 -> 2026-02
+                const dateMatch = dateRaw.match(/(\d{4})[-. /년]*(\d{1,2})/);
+                if (dateMatch) {
+                    monthKey = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}`;
                 } else {
                     monthKey = '기타';
                 }
@@ -198,14 +199,17 @@
             // 2. 차트 렌더링
             renderChart(monthlyStats);
 
-            // 3. 테이블 렌더링 (최신 날짜순 정렬 후 최대 100개만 표시)
+            // 3. 테이블 렌더링 (최신 날짜순 정렬 후 모든 데이터 표시)
             tableRows.sort((a, b) => b.date.localeCompare(a.date));
-            renderTable(tableRows.slice(0, 100));
+            renderTable(tableRows);
         }
 
         function renderChart(monthlyStats) {
-            // 키(년-월) 기준으로 오름차순 정렬
-            const sortedMonths = Object.keys(monthlyStats).sort();
+            // 차트 데이터 라벨 플러그인 등록
+            Chart.register(ChartDataLabels);
+
+            // 키(년-월) 기준으로 오름차순 정렬 ('기타' 값 제외)
+            const sortedMonths = Object.keys(monthlyStats).filter(m => m !== '기타').sort();
             const labels = [];
             const dataPrices = [];
 
@@ -223,10 +227,10 @@
                     datasets: [{
                         label: '월별 평균 거래가격 (만원)',
                         data: dataPrices,
-                        borderColor: '#3b82f6',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderColor: '#16a34a',
+                        backgroundColor: 'rgba(22, 163, 74, 0.1)',
                         borderWidth: 2,
-                        pointBackgroundColor: '#2563eb',
+                        pointBackgroundColor: '#15803d',
                         pointRadius: 4,
                         fill: true,
                         tension: 0.3
@@ -235,8 +239,20 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: {
+                        padding: { top: 30, right: 30, left: 10 } // 데이터 라벨이 잘리지 않도록 상단/우측 여백 추가
+                    },
                     plugins: {
                         legend: { display: false },
+                        datalabels: { // 그래프의 각 포인트 위에 데이터 직접 표시
+                            align: 'top',
+                            anchor: 'end',
+                            color: '#15803d',
+                            font: { weight: 'bold', size: 11 },
+                            formatter: function(value) {
+                                return formatKoreanCurrency(value);
+                            }
+                        },
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
@@ -278,7 +294,7 @@
                     <td class="px-6 py-4 font-medium text-gray-900">${row.aptName}</td>
                     <td class="px-6 py-4 text-right">${row.area}</td>
                     <td class="px-6 py-4 text-right">${row.floor}</td>
-                    <td class="px-6 py-4 text-right font-bold text-blue-600">${formatKoreanCurrency(row.price)}</td>
+                    <td class="px-6 py-4 text-right font-bold text-green-600">${formatKoreanCurrency(row.price)}</td>
                     <td class="px-6 py-4 text-center">${row.buildYear}</td>
                 `;
                 tbody.appendChild(tr);
